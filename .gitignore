@@ -1,0 +1,20 @@
+# Entorno virtual
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Datos y modelos (archivos grandes)
+data/processed/*.pkl
+data/results/
+saved_models/*.h5
+saved_models/*.weights.h5
+
+# Jupyter (si se añaden notebooks en el futuro)
+.ipynb_checkpoints/
+
+# Sistema
+.DS_Store
+Thumbs.db

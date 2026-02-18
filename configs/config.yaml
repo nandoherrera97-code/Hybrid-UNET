@@ -1,0 +1,16 @@
+model:
+  input_shape: [80, 200, 1]   # (H, W, canales)
+
+training:
+  epochs: 1000
+  batch_size: 8
+  learning_rate: 0.001
+  test_size: 0.2
+  random_state: 42
+  patience: 10               # EarlyStopping
+  loss_alpha: 3.0            # Peso near-wall: mayor → más concentrado en pared
+
+paths:
+  dataset:     "data/processed/CNN_df.pkl"
+  saved_model: "saved_models/best_model.weights.h5"
+  results_dir: "data/raw"
