@@ -24,14 +24,15 @@ def predict_fields(model, sdf_norm, norm_params):
         dict con campos desnormalizados: {"Ux", "Uy", "P"}
         y el SDF invertido para visualización
     """
-    sdf_input = sdf_norm.reshape(1, *sdf_norm.shape, 1)
+    sdf_2d    = np.squeeze(sdf_norm)              # (80, 200) independiente del shape de entrada
+    sdf_input = sdf_2d.reshape(1, *sdf_2d.shape, 1)
     ux_pred, uy_pred, p_pred = model.predict(sdf_input, verbose=0)
 
     def denorm(arr, key):
         mn, mx = norm_params[key]
         return arr * (mx - mn) + mn
 
-    sdf_vis  = np.flipud(sdf_norm)
+    sdf_vis  = np.flipud(sdf_2d)
     ux_field = np.flipud(np.squeeze(denorm(ux_pred[0], "Ux")))
     uy_field = np.flipud(np.squeeze(denorm(uy_pred[0], "Uy")))
     p_field  = np.flipud(np.squeeze(denorm(p_pred[0],  "P")))

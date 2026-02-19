@@ -2,17 +2,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def plot_comparison(pred, true, field_name, unit):
+def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None):
     """
-    Muestra en tres subplots: predicción, referencia y error.
+    Muestra en tres subplots: predicción, referencia y error porcentual.
+
+    El error % se calcula según la fórmula del paper:
+        error%[i,j] = |true[i,j] - pred[i,j]| / mean(|true|) × 100
 
     Args:
-        pred       : array 2D predicho
-        true       : array 2D de referencia (OpenFOAM)
-        field_name : nombre del campo (e.g. 'X-Velocity')
-        unit       : unidad (e.g. 'm/s', 'Pa')
+        pred         : array 2D predicho
+        true         : array 2D de referencia (OpenFOAM)
+        field_name   : nombre del campo (e.g. 'X-Velocity')
+        unit         : unidad (e.g. 'm/s', 'Pa')
+        denom        : denominador = mean(|true|). Si es None se calcula del propio caso.
+        nearwall_mae : MAE% en la zona near-wall (float). Si se pasa, se muestra en el título.
     """
-    diff = true - pred
+    d = denom if denom is not None else np.mean(np.abs(true))
+    d = d if d != 0 else 1.0
+    error_pct = np.abs(true - pred) / d * 100
+
     vmin = min(pred.min(), true.min())
     vmax = max(pred.max(), true.max())
 
@@ -26,9 +34,10 @@ def plot_comparison(pred, true, field_name, unit):
     axes[1].set_title(f'OpenFOAM — {field_name}')
     plt.colorbar(im1, ax=axes[1], label=unit)
 
-    im2 = axes[2].imshow(diff, cmap='coolwarm', origin='lower')
-    axes[2].set_title(f'Error — {field_name}')
-    plt.colorbar(im2, ax=axes[2], label=unit)
+    nw_str = f"  |  Near-wall MAE = {nearwall_mae:.2f}%" if nearwall_mae is not None else ""
+    im2 = axes[2].imshow(error_pct, cmap='Reds', origin='lower', vmin=0)
+    axes[2].set_title(f'Error porcentual — {field_name}  (Global MAE = {error_pct.mean():.2f}%{nw_str})')
+    plt.colorbar(im2, ax=axes[2], label='%')
 
     plt.tight_layout()
     return fig

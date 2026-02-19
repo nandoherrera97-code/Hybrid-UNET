@@ -10,6 +10,9 @@ training:
   patience: 10               # EarlyStopping
   loss_alpha: 3.0            # Peso near-wall: mayor → más concentrado en pared
 
+evaluation:
+  nearwall_cells: 2   # Umbral = nearwall_cells × resolución espacial del grid (mín. SDF no nulo)
+
 paths:
   dataset:     "data/processed/CNN_df.pkl"
   saved_model: "saved_models/best_model.weights.h5"
