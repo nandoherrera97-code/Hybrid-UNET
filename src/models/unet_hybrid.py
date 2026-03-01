@@ -6,18 +6,23 @@ from keras.layers import (
 )
 
 
-def unet_model_multi_output(input_shape=(80, 200, 1)):
+def unet_model_multi_output(input_shape=(512, 256, 1)):
     """
     Hybrid CNN + U-Net con tres salidas independientes.
 
     Entrada:
-        sdf: campo Signed Distance Function normalizado (80x200x1)
+        sdf: campo Signed Distance Function normalizado. El tamaño H×W debe
+             ser divisible por 8 (3 MaxPooling2D de stride 2).
 
     Salidas:
         output_1: campo de velocidad Ux
         output_2: campo de velocidad Uy
         output_3: campo de presión P
     """
+    H, W = input_shape[0], input_shape[1]
+    # Tras 3 × MaxPool(2,2) el mapa de activaciones tiene tamaño H//8 × W//8
+    H_bn, W_bn = H // 8, W // 8
+
     inputs = Input(shape=input_shape)
 
     # ---- Encoder (compartido) ----
@@ -37,8 +42,8 @@ def unet_model_multi_output(input_shape=(80, 200, 1)):
     b = Conv2D(128, (3, 3), activation='relu', padding='same')(p3)
     b = Conv2D(128, (3, 3), activation='relu', padding='same')(b)
     flat = Flatten()(b)
-    dense = Dense(10 * 25 * 32, activation='relu')(flat)
-    reshaped = Reshape((10, 25, 32))(dense)
+    dense = Dense(H_bn * W_bn * 32, activation='relu')(flat)
+    reshaped = Reshape((H_bn, W_bn, 32))(dense)
 
     # ---- Decoder Ux ----
     ux3 = Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same')(reshaped)
