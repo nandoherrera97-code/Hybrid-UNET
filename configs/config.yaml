@@ -5,7 +5,8 @@ training:
   epochs: 1000
   batch_size: 8
   learning_rate: 0.001
-  test_size: 0.2
+  val_size:  0.15   # fracción de validación (early stopping) — sobre el total del dataset
+  test_size: 0.15   # fracción de test hold-out — nunca visto durante el entrenamiento
   random_state: 42
   patience: 10               # EarlyStopping
   loss_alpha: 3.0            # Peso near-wall: mayor → más concentrado en pared
@@ -14,6 +15,8 @@ evaluation:
   nearwall_cells: 2   # Umbral = nearwall_cells × resolución espacial del grid (mín. SDF no nulo)
 
 paths:
-  dataset:     "data/processed/CNN_df.pkl"
-  saved_model: "saved_models/best_model.weights.h5"
-  results_dir: "data/raw"
+  dataset:       "data/processed/CNN_df.pkl"
+  saved_model:   "saved_models/best_model.weights.h5"
+  split_indices: "saved_models/split_indices.npz"
+  norm_params:   "saved_models/norm_params.npz"
+  results_dir:   "data/raw"

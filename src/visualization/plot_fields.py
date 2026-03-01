@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None):
+def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None, mask=None):
     """
     Muestra en tres subplots: predicción, referencia y error porcentual.
 
@@ -16,6 +16,7 @@ def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None)
         unit         : unidad (e.g. 'm/s', 'Pa')
         denom        : denominador = mean(|true|). Si es None se calcula del propio caso.
         nearwall_mae : MAE% en la zona near-wall (float). Si se pasa, se muestra en el título.
+        mask         : array 2D booleano (True = airfoil). Se muestra en blanco.
     """
     d = denom if denom is not None else np.mean(np.abs(true))
     d = d if d != 0 else 1.0
@@ -24,21 +25,60 @@ def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None)
     vmin = min(pred.min(), true.min())
     vmax = max(pred.max(), true.max())
 
+    # Colormaps con color blanco para la zona enmascarada (airfoil)
+    cmap_field = plt.cm.viridis.copy()
+    cmap_field.set_bad('white')
+    cmap_err = plt.cm.Reds.copy()
+    cmap_err.set_bad('white')
+
+    if mask is not None:
+        pred_plot = np.ma.masked_where(mask, pred)
+        true_plot = np.ma.masked_where(mask, true)
+        err_plot  = np.ma.masked_where(mask, error_pct)
+    else:
+        pred_plot, true_plot, err_plot = pred, true, error_pct
+
     fig, axes = plt.subplots(3, 1, figsize=(8, 10))
 
-    im0 = axes[0].imshow(pred, cmap='viridis', origin='lower', vmin=vmin, vmax=vmax)
+    im0 = axes[0].imshow(pred_plot, cmap=cmap_field, origin='lower', vmin=vmin, vmax=vmax)
     axes[0].set_title(f'Hybrid U-Net — {field_name}')
     plt.colorbar(im0, ax=axes[0], label=unit)
 
-    im1 = axes[1].imshow(true, cmap='viridis', origin='lower', vmin=vmin, vmax=vmax)
+    im1 = axes[1].imshow(true_plot, cmap=cmap_field, origin='lower', vmin=vmin, vmax=vmax)
     axes[1].set_title(f'OpenFOAM — {field_name}')
     plt.colorbar(im1, ax=axes[1], label=unit)
 
+    # MAE global calculado solo sobre el dominio fluido (excluye airfoil)
+    flow_mask = ~mask if mask is not None else np.ones(error_pct.shape, dtype=bool)
+    global_mae = error_pct[flow_mask].mean()
+
     nw_str = f"  |  Near-wall MAE = {nearwall_mae:.2f}%" if nearwall_mae is not None else ""
-    im2 = axes[2].imshow(error_pct, cmap='Reds', origin='lower', vmin=0)
-    axes[2].set_title(f'Error porcentual — {field_name}  (Global MAE = {error_pct.mean():.2f}%{nw_str})')
+    im2 = axes[2].imshow(err_plot, cmap=cmap_err, origin='lower', vmin=0)
+    axes[2].set_title(f'Error(%) — {field_name}  (Global MAE = {global_mae:.2f}%{nw_str})')
     plt.colorbar(im2, ax=axes[2], label='%')
 
+    plt.tight_layout()
+    return fig
+
+
+def plot_sdf(sdf, case_label=""):
+    """
+    Visualiza el campo SDF de un caso.
+
+    Args:
+        sdf        : array 2D del SDF normalizado (0 = interior airfoil)
+        case_label : texto para el título (e.g. 'case 007')
+    """
+    cmap = plt.cm.plasma.copy()
+    cmap.set_bad('white')
+
+    airfoil_mask = (sdf == 0)
+    sdf_plot = np.ma.masked_where(airfoil_mask, sdf)
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    im = ax.imshow(sdf_plot, cmap=cmap, origin='lower', vmin=0)
+    ax.set_title(f'SDF (normalizado) — {case_label}')
+    plt.colorbar(im, ax=ax, label='SDF norm.')
     plt.tight_layout()
     return fig
 

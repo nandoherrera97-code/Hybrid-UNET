@@ -31,30 +31,66 @@ def train(config_path="configs/config.yaml"):
     uy_array  = np.array(df["Uy_discretized"].tolist())
     p_array   = np.array(df["P_discretized"].tolist())
 
-    # Normalización
-    def normalize(arr):
-        return (arr - arr.min()) / (arr.max() - arr.min())
+    # Split 3-vías usando índices — ANTES de normalizar para evitar leakage
+    rs       = train_cfg["random_state"]
+    ts_test  = train_cfg["test_size"]
+    ts_val   = train_cfg["val_size"]
+    val_frac = ts_val / (1.0 - ts_test)   # fracción de val relativa al conjunto trainval
 
-    sdf_array = normalize(sdf_array)
-    ux_array  = normalize(ux_array)
-    uy_array  = normalize(uy_array)
-    p_array   = normalize(p_array)
+    idx = np.arange(len(sdf_array))
 
-    # Split
-    rs = train_cfg["random_state"]
-    ts = train_cfg["test_size"]
-    X_train, X_test, ux_train, ux_test = train_test_split(sdf_array, ux_array, test_size=ts, random_state=rs)
-    _, _,           uy_train, uy_test  = train_test_split(sdf_array, uy_array,  test_size=ts, random_state=rs)
-    _, _,           p_train,  p_test   = train_test_split(sdf_array, p_array,   test_size=ts, random_state=rs)
+    # 1. Separar test hold-out (nunca usado durante el entrenamiento)
+    idx_trainval, idx_test = train_test_split(idx, test_size=ts_test, random_state=rs, shuffle=True)
+
+    # 2. Separar validación del resto (trainval → train + val)
+    idx_train, idx_val = train_test_split(idx_trainval, test_size=val_frac, random_state=rs, shuffle=True)
+
+    print(f"Split: {len(idx_train)} train / {len(idx_val)} val / {len(idx_test)} test hold-out")
+
+    # Persistir índices para reproducibilidad exacta en evaluate.py
+    save_path_split = Path(paths_cfg["split_indices"])
+    save_path_split.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(save_path_split, idx_train=idx_train, idx_val=idx_val, idx_test=idx_test)
+
+    # Normalización: fit solo sobre entrenamiento → sin leakage de val/test
+    def fit_norm(arr, idx):
+        mn, mx = arr[idx].min(), arr[idx].max()
+        return mn, mx
+
+    def apply_norm(arr, mn, mx):
+        return (arr - mn) / (mx - mn) if mx != mn else np.zeros_like(arr)
+
+    sdf_mn, sdf_mx = fit_norm(sdf_array, idx_train)
+    ux_mn,  ux_mx  = fit_norm(ux_array,  idx_train)
+    uy_mn,  uy_mx  = fit_norm(uy_array,  idx_train)
+    p_mn,   p_mx   = fit_norm(p_array,   idx_train)
+
+    # Persistir parámetros de normalización para evaluate.py y predict.py
+    np.savez(paths_cfg["norm_params"],
+             sdf_mn=sdf_mn, sdf_mx=sdf_mx,
+             ux_mn=ux_mn,   ux_mx=ux_mx,
+             uy_mn=uy_mn,   uy_mx=uy_mx,
+             p_mn=p_mn,     p_mx=p_mx)
+
+    sdf_norm = apply_norm(sdf_array, sdf_mn, sdf_mx)
+    ux_norm  = apply_norm(ux_array,  ux_mn,  ux_mx)
+    uy_norm  = apply_norm(uy_array,  uy_mn,  uy_mx)
+    p_norm   = apply_norm(p_array,   p_mn,   p_mx)
+
+    # Aplicar índices a todos los arrays de una vez
+    X_train  = sdf_norm[idx_train];  X_val  = sdf_norm[idx_val]
+    ux_train = ux_norm[idx_train];   ux_val = ux_norm[idx_val]
+    uy_train = uy_norm[idx_train];   uy_val = uy_norm[idx_val]
+    p_train  = p_norm[idx_train];    p_val  = p_norm[idx_val]
 
     X_train  = np.expand_dims(X_train,  -1).astype(np.float32)
-    X_test   = np.expand_dims(X_test,   -1).astype(np.float32)
+    X_val    = np.expand_dims(X_val,    -1).astype(np.float32)
     ux_train = np.expand_dims(ux_train, -1).astype(np.float32)
-    ux_test  = np.expand_dims(ux_test,  -1).astype(np.float32)
+    ux_val   = np.expand_dims(ux_val,   -1).astype(np.float32)
     uy_train = np.expand_dims(uy_train, -1).astype(np.float32)
-    uy_test  = np.expand_dims(uy_test,  -1).astype(np.float32)
+    uy_val   = np.expand_dims(uy_val,   -1).astype(np.float32)
     p_train  = np.expand_dims(p_train,  -1).astype(np.float32)
-    p_test   = np.expand_dims(p_test,   -1).astype(np.float32)
+    p_val    = np.expand_dims(p_val,    -1).astype(np.float32)
 
     # ---- Modelo ----
     model = unet_model_multi_output(input_shape=tuple(cfg["model"]["input_shape"]))
@@ -67,7 +103,7 @@ def train(config_path="configs/config.yaml"):
         .shuffle(len(X_train))
         .batch(batch_size)
     )
-    val_ds = tf.data.Dataset.from_tensor_slices((X_test, ux_test, uy_test, p_test)).batch(batch_size)
+    val_ds = tf.data.Dataset.from_tensor_slices((X_val, ux_val, uy_val, p_val)).batch(batch_size)
 
     # ---- Bucle de entrenamiento ----
     alpha   = train_cfg["loss_alpha"]

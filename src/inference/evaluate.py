@@ -14,11 +14,10 @@ import matplotlib
 matplotlib.use("Agg")  # Sin pantalla — guarda a archivo
 import matplotlib.pyplot as plt
 from pathlib import Path
-from sklearn.model_selection import train_test_split
 
 from src.models.unet_hybrid import unet_model_multi_output
 from src.inference.predict import predict_fields
-from src.visualization.plot_fields import plot_comparison, plot_training_history
+from src.visualization.plot_fields import plot_comparison, plot_sdf, plot_training_history
 
 
 def load_config(config_path="configs/config.yaml"):
@@ -28,38 +27,42 @@ def load_config(config_path="configs/config.yaml"):
 
 def evaluate(config_path="configs/config.yaml"):
     cfg       = load_config(config_path)
-    train_cfg = cfg["training"]
     paths_cfg = cfg["paths"]
 
     results_dir = Path("data/results")
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    # ---- Cargar y normalizar datos (igual que train.py) ----
+    # ---- Cargar datos ----
     df = pd.read_pickle(paths_cfg["dataset"])
     sdf_array = np.array(df["SDF"].tolist())
     ux_array  = np.array(df["Ux_discretized"].tolist())
     uy_array  = np.array(df["Uy_discretized"].tolist())
     p_array   = np.array(df["P_discretized"].tolist())
 
+    # ---- Cargar índices y parámetros de normalización persistidos en train.py ----
+    split   = np.load(paths_cfg["split_indices"])
+    nparams = np.load(paths_cfg["norm_params"])
+    idx_test = split["idx_test"]
+
+    # Parámetros de normalización (fit sobre train únicamente → sin leakage)
     norm_params = {
-        "Ux": (ux_array.min(), ux_array.max()),
-        "Uy": (uy_array.min(), uy_array.max()),
-        "P":  (p_array.min(),  p_array.max()),
+        "Ux": (float(nparams["ux_mn"]), float(nparams["ux_mx"])),
+        "Uy": (float(nparams["uy_mn"]), float(nparams["uy_mx"])),
+        "P":  (float(nparams["p_mn"]),  float(nparams["p_mx"])),
     }
 
-    def normalize(arr):
-        return (arr - arr.min()) / (arr.max() - arr.min())
+    def apply_norm(arr, mn, mx):
+        return (arr - mn) / (mx - mn) if mx != mn else np.zeros_like(arr)
 
-    sdf_norm = normalize(sdf_array)
-    ux_norm  = normalize(ux_array)
-    uy_norm  = normalize(uy_array)
-    p_norm   = normalize(p_array)
+    sdf_norm = apply_norm(sdf_array, float(nparams["sdf_mn"]), float(nparams["sdf_mx"]))
+    ux_norm  = apply_norm(ux_array,  norm_params["Ux"][0], norm_params["Ux"][1])
+    uy_norm  = apply_norm(uy_array,  norm_params["Uy"][0], norm_params["Uy"][1])
+    p_norm   = apply_norm(p_array,   norm_params["P"][0],  norm_params["P"][1])
 
-    # ---- Mismo split que entrenamiento ----
-    rs, ts = train_cfg["random_state"], train_cfg["test_size"]
-    X_train, X_test, ux_train, ux_test = train_test_split(sdf_norm, ux_norm, test_size=ts, random_state=rs)
-    _, _,            uy_train, uy_test  = train_test_split(sdf_norm, uy_norm,  test_size=ts, random_state=rs)
-    _, _,            p_train,  p_test   = train_test_split(sdf_norm, p_norm,   test_size=ts, random_state=rs)
+    X_test  = sdf_norm[idx_test]
+    ux_test = ux_norm[idx_test]
+    uy_test = uy_norm[idx_test]
+    p_test  = p_norm[idx_test]
 
     # ---- Cargar modelo ----
     model = unet_model_multi_output(input_shape=tuple(cfg["model"]["input_shape"]))
@@ -90,22 +93,29 @@ def evaluate(config_path="configs/config.yaml"):
         uy_true = np.flipud(np.squeeze(uy_test[i])) * (norm_params["Uy"][1] - norm_params["Uy"][0]) + norm_params["Uy"][0]
         p_true  = np.flipud(np.squeeze(p_test[i]))  * (norm_params["P"][1]  - norm_params["P"][0])  + norm_params["P"][0]
 
-        # Máscara near-wall: exterior al perfil y por debajo del umbral SDF
-        mask_nw = (sdf_vis > 1e-6) & (sdf_vis < nw_threshold)
+        # Máscaras: dominio fluido (excluye airfoil) y near-wall
+        mask_flow = sdf_vis > 1e-6
+        mask_nw   = mask_flow & (sdf_vis < nw_threshold)
 
-        mae_ux_list.append(np.mean(np.abs(ux_true - fields["Ux"])))
-        mae_uy_list.append(np.mean(np.abs(uy_true - fields["Uy"])))
-        mae_p_list.append( np.mean(np.abs(p_true  - fields["P"])))
+        # MAE global — solo sobre el dominio fluido (excluye interior airfoil)
+        mae_ux_list.append(np.mean(np.abs((ux_true - fields["Ux"])[mask_flow])))
+        mae_uy_list.append(np.mean(np.abs((uy_true - fields["Uy"])[mask_flow])))
+        mae_p_list.append( np.mean(np.abs((p_true  - fields["P"])[mask_flow])))
 
-        # mean(|Y|) per caso — denominador según fórmula del paper
-        mabs_ux_list.append(np.mean(np.abs(ux_true)))
-        mabs_uy_list.append(np.mean(np.abs(uy_true)))
-        mabs_p_list.append( np.mean(np.abs(p_true)))
+        # mean(|Y|) sobre dominio fluido — denominador según fórmula del paper
+        mabs_ux_list.append(np.mean(np.abs(ux_true[mask_flow])))
+        mabs_uy_list.append(np.mean(np.abs(uy_true[mask_flow])))
+        mabs_p_list.append( np.mean(np.abs(p_true[mask_flow])))
 
         if mask_nw.any():
             nw_mae_ux_list.append(np.mean(np.abs((ux_true - fields["Ux"])[mask_nw])))
             nw_mae_uy_list.append(np.mean(np.abs((uy_true - fields["Uy"])[mask_nw])))
             nw_mae_p_list.append( np.mean(np.abs((p_true  - fields["P"])[mask_nw])))
+
+        # Guardar SDF del caso
+        fig_sdf = plot_sdf(sdf_vis, case_label=f"case {i:03d}")
+        fig_sdf.savefig(results_dir / f"case_{i:03d}_SDF.png", dpi=100)
+        plt.close(fig_sdf)
 
         # Guardar gráfica — denominador = mean(|Y|) del caso (consistente con paper)
         mabs_case = {"Ux": mabs_ux_list[-1], "Uy": mabs_uy_list[-1], "P": mabs_p_list[-1]}
@@ -120,6 +130,7 @@ def evaluate(config_path="configs/config.yaml"):
             fig = plot_comparison(
                 fields[field_key], true_arr, label, unit,
                 denom=denom, nearwall_mae=nw_mae_pct,
+                mask=(sdf_vis == 0),
             )
             fig.savefig(results_dir / f"case_{i:03d}_{field_key}.png", dpi=100)
             plt.close(fig)
