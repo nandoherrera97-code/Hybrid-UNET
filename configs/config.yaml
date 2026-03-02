@@ -4,7 +4,8 @@ model:
 training:
   epochs: 1000
   batch_size: 4              # reducido respecto al grid 80×200 por mayor resolución
-  test_size: 0.2
+  val_size:  0.15            # fracción de validación (early stopping) — sobre el total
+  test_size: 0.15            # fracción de test hold-out — nunca visto durante el entrenamiento
   random_state: 42
   patience: 10
 

@@ -62,37 +62,45 @@ def train(config_path="configs/config.yaml"):
     U_y_array = (U_y_array - np.min(U_y_array)) / (np.max(U_y_array) - np.min(U_y_array))
     P_array   = (P_array   - np.min(P_array))   / (np.max(P_array)   - np.min(P_array))
 
-    # ------------------- Dividir el dataset en entrenamiento y prueba ----------------------------
+    # ------------------- Split 70 / 15 / 15 (train / val / test) ----------------------------
+    # Se usan índices para garantizar que los tres campos (Ux, Uy, P) compartan
+    # exactamente los mismos casos en cada partición.
 
-    # Dividir los datos en entrenamiento y prueba para las tres salidas
-    X_train, X_test, y_train_x, y_test_x = train_test_split(
-        sdf_array, U_x_array,
-        test_size=train_cfg["test_size"], random_state=train_cfg["random_state"]
-    )
-    _, _, y_train_y,        y_test_y        = train_test_split(
-        sdf_array, U_y_array,
-        test_size=train_cfg["test_size"], random_state=train_cfg["random_state"]
-    )
-    _, _, y_train_pressure, y_test_pressure = train_test_split(
-        sdf_array, P_array,
-        test_size=train_cfg["test_size"], random_state=train_cfg["random_state"]
+    n = len(sdf_array)
+    indices = np.arange(n)
+
+    # 1) Separar test hold-out (15 % del total)
+    idx_trainval, idx_test = train_test_split(
+        indices,
+        test_size=train_cfg["test_size"],
+        random_state=train_cfg["random_state"]
     )
 
-    X_test            = np.expand_dims(X_test,            axis=-1)
-    X_train           = np.expand_dims(X_train,           axis=-1)
-    y_train_x         = np.expand_dims(y_train_x,         axis=-1)
-    y_train_y         = np.expand_dims(y_train_y,         axis=-1)
-    y_train_pressure  = np.expand_dims(y_train_pressure,  axis=-1)
-    y_test_pressure   = np.expand_dims(y_test_pressure,   axis=-1)
-    y_test_x          = np.expand_dims(y_test_x,          axis=-1)
-    y_test_y          = np.expand_dims(y_test_y,          axis=-1)
+    # 2) Separar validación del resto  →  val_size/( 1 - test_size ) del trainval
+    val_frac = train_cfg["val_size"] / (1.0 - train_cfg["test_size"])
+    idx_train, idx_val = train_test_split(
+        idx_trainval,
+        test_size=val_frac,
+        random_state=train_cfg["random_state"]
+    )
 
-    # Verificar tipo y forma
-    print(type(X_train), X_train.shape)
-    print(type(y_train_x), y_train_x.shape)
-    print(type(y_train_y), y_train_y.shape)
-    print(type(y_train_pressure), y_train_pressure.shape)
-    print(type(y_test_pressure), y_test_pressure.shape)
+    X_train = np.expand_dims(sdf_array[idx_train], axis=-1)
+    X_val   = np.expand_dims(sdf_array[idx_val],   axis=-1)
+    X_test  = np.expand_dims(sdf_array[idx_test],  axis=-1)
+
+    y_train_x        = np.expand_dims(U_x_array[idx_train], axis=-1)
+    y_val_x          = np.expand_dims(U_x_array[idx_val],   axis=-1)
+    y_test_x         = np.expand_dims(U_x_array[idx_test],  axis=-1)
+
+    y_train_y        = np.expand_dims(U_y_array[idx_train], axis=-1)
+    y_val_y          = np.expand_dims(U_y_array[idx_val],   axis=-1)
+    y_test_y         = np.expand_dims(U_y_array[idx_test],  axis=-1)
+
+    y_train_pressure = np.expand_dims(P_array[idx_train], axis=-1)
+    y_val_pressure   = np.expand_dims(P_array[idx_val],   axis=-1)
+    y_test_pressure  = np.expand_dims(P_array[idx_test],  axis=-1)
+
+    print(f"Split  →  train: {len(idx_train)}  val: {len(idx_val)}  test: {len(idx_test)}")
 
     # ---------------- DEFINIR EL MODELO -----------------------------
     modelo_unet_multi = unet_model_multi_output(input_shape=tuple(cfg["model"]["input_shape"]))
@@ -116,7 +124,7 @@ def train(config_path="configs/config.yaml"):
     history = modelo_unet_multi.fit(
         X_train,
         [y_train_x, y_train_y, y_train_pressure],
-        validation_data=(X_test, [y_test_x, y_test_y, y_test_pressure]),
+        validation_data=(X_val, [y_val_x, y_val_y, y_val_pressure]),
         epochs=train_cfg["epochs"],
         callbacks=[early_stopping]
     )
@@ -135,9 +143,9 @@ def train(config_path="configs/config.yaml"):
     final_val_mae_y = history.history['val_output_2_mae'][-1]
     final_val_mae_p = history.history['val_output_3_mae'][-1]
 
-    mae_porcentaje_u_x      = (final_val_mae_x / y_test_y.max())        * 100
-    mae_porcentaje_u_y      = (final_val_mae_y / y_test_y.max())        * 100
-    mae_porcentaje_pressure = (final_val_mae_p / y_test_pressure.max()) * 100
+    mae_porcentaje_u_x      = (final_val_mae_x / y_val_x.max())        * 100
+    mae_porcentaje_u_y      = (final_val_mae_y / y_val_y.max())        * 100
+    mae_porcentaje_pressure = (final_val_mae_p / y_val_pressure.max()) * 100
 
     # Imprimir resultados finales
     print("Resultados Finales del Entrenamiento:")

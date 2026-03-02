@@ -56,24 +56,21 @@ def evaluate(config_path="configs/config.yaml"):
     U_y_array = (U_y_array - np.min(U_y_array)) / (np.max(U_y_array) - np.min(U_y_array))
     P_array   = (P_array   - np.min(P_array))   / (np.max(P_array)   - np.min(P_array))
 
-    # ---- Mismo split que entrenamiento ----
-    X_train, X_test, y_train_x, y_test_x = train_test_split(
-        sdf_array, U_x_array,
-        test_size=train_cfg["test_size"], random_state=train_cfg["random_state"]
-    )
-    _, _, y_train_y,        y_test_y        = train_test_split(
-        sdf_array, U_y_array,
-        test_size=train_cfg["test_size"], random_state=train_cfg["random_state"]
-    )
-    _, _, y_train_pressure, y_test_pressure = train_test_split(
-        sdf_array, P_array,
-        test_size=train_cfg["test_size"], random_state=train_cfg["random_state"]
-    )
+    # ---- Mismo split 70/15/15 que entrenamiento ----
+    n = len(sdf_array)
+    indices = np.arange(n)
 
-    X_test           = np.expand_dims(X_test,           axis=-1)
-    y_test_x         = np.expand_dims(y_test_x,         axis=-1)
-    y_test_y         = np.expand_dims(y_test_y,         axis=-1)
-    y_test_pressure  = np.expand_dims(y_test_pressure,  axis=-1)
+    idx_trainval, idx_test = train_test_split(
+        indices,
+        test_size=train_cfg["test_size"],
+        random_state=train_cfg["random_state"]
+    )
+    # (val no se usa en evaluación pero debe replicarse para obtener idx_test correcto)
+
+    X_test          = np.expand_dims(sdf_array[idx_test],  axis=-1)
+    y_test_x        = np.expand_dims(U_x_array[idx_test],  axis=-1)
+    y_test_y        = np.expand_dims(U_y_array[idx_test],  axis=-1)
+    y_test_pressure = np.expand_dims(P_array[idx_test],    axis=-1)
 
     # ---- Umbral near-wall ----
     nw_cells = eval_cfg.get("nearwall_cells", 2)
