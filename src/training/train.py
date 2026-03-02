@@ -103,7 +103,11 @@ def train(config_path="configs/config.yaml"):
     print(f"Split  →  train: {len(idx_train)}  val: {len(idx_val)}  test: {len(idx_test)}")
 
     # ---------------- DEFINIR EL MODELO -----------------------------
-    modelo_unet_multi = unet_model_multi_output(input_shape=tuple(cfg["model"]["input_shape"]))
+    modelo_unet_multi = unet_model_multi_output(
+        input_shape=tuple(cfg["model"]["input_shape"]),
+        dropout_spatial=cfg["model"].get("dropout_spatial", 0.1),
+        dropout_dense=cfg["model"].get("dropout_dense",   0.3),
+    )
 
     # ---------------- COMPILAR EL MODELO -----------------------------
     modelo_unet_multi.compile(
