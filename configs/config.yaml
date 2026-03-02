@@ -1,5 +1,5 @@
 model:
-  input_shape: [512, 256, 1]   # (H, W, canales) — grid 512×256
+  input_shape: [256, 512, 1]   # (H, W, canales) — grid 256×512
 
 training:
   epochs: 1000
@@ -15,8 +15,8 @@ evaluation:
   nearwall_cells: 2   # Umbral = nearwall_cells × resolución espacial del grid (mín. SDF no nulo)
 
 paths:
-  dataset:       "data/processed/CNN_df.pkl"
-  saved_model:   "saved_models/best_model_512x256.weights.h5"
-  split_indices: "saved_models/split_indices_512x256.npz"
-  norm_params:   "saved_models/norm_params_512x256.npz"
+  dataset:       "data/raw/CNN_df.pkl"
+  saved_model:   "saved_models/best_model_256x512.weights.h5"
+  split_indices: "saved_models/split_indices_256x512.npz"
+  norm_params:   "saved_models/norm_params_256x512.npz"
   results_dir:   "data/raw"

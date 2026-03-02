@@ -52,12 +52,12 @@ sdf_lookup = {
 # ---------- DISCRETIZACIÓN DEL ESPACIO ----------------------------------
 x_min, x_max     = -0.5, 1.5
 y_min, y_max     = -0.5, 0.5
-resolution_x     = 256
-resolution_y     = 512
+resolution_x     = 512
+resolution_y     = 256
 
 x_lin = np.linspace(x_min, x_max, resolution_x)
 y_lin = np.linspace(y_min, y_max, resolution_y)
-xx, yy = np.meshgrid(x_lin, y_lin)          # shape (512, 256)
+xx, yy = np.meshgrid(x_lin, y_lin)          # shape (256, 512)
 space_points = np.column_stack([xx.ravel(), yy.ravel()])  # (131072, 2)
 
 # ---------- INTERPOLACIÓN Y ENSAMBLADO ----------------------------------

@@ -2,6 +2,7 @@ import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"]  = "2"   # Silencia logs INFO y WARNING de TF
 
+import time
 import numpy as np
 import tensorflow as tf
 import yaml
@@ -27,6 +28,7 @@ def train(config_path="configs/config.yaml"):
 
     df = pd.read_pickle(paths_cfg["dataset"])
     sdf_array = np.array(df["SDF"].tolist())
+    sdf_array = np.maximum(sdf_array, 0)   # SDF < 0 (interior airfoil) → 0 exacto
     ux_array  = np.array(df["Ux_discretized"].tolist())
     uy_array  = np.array(df["Uy_discretized"].tolist())
     p_array   = np.array(df["P_discretized"].tolist())
@@ -112,6 +114,7 @@ def train(config_path="configs/config.yaml"):
     wait = 0
     history = {"loss": [], "val_loss": []}
     save_path = Path(paths_cfg["saved_model"])
+    t_inicio = time.time()
 
     for epoch in range(train_cfg["epochs"]):
         # Entrenamiento
@@ -157,8 +160,10 @@ def train(config_path="configs/config.yaml"):
                 print(f"\nEarly stopping en epoch {epoch + 1}")
                 break
 
+    t_total = time.time() - t_inicio
     model.load_weights(str(save_path))
     print(f"\nMejor val_loss: {best_val:.5f}")
+    print(f"Tiempo total entrenamiento: {t_total:.1f} s  ({t_total/60:.1f} min)")
     return model, history
 
 

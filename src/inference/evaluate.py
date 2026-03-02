@@ -35,6 +35,7 @@ def evaluate(config_path="configs/config.yaml"):
     # ---- Cargar datos ----
     df = pd.read_pickle(paths_cfg["dataset"])
     sdf_array = np.array(df["SDF"].tolist())
+    sdf_array = np.maximum(sdf_array, 0)   # SDF < 0 (interior airfoil) → 0 exacto
     ux_array  = np.array(df["Ux_discretized"].tolist())
     uy_array  = np.array(df["Uy_discretized"].tolist())
     p_array   = np.array(df["P_discretized"].tolist())
@@ -70,14 +71,9 @@ def evaluate(config_path="configs/config.yaml"):
     print(f"Modelo cargado desde: {paths_cfg['saved_model']}")
     print(f"Casos de test: {len(X_test)}\n")
 
-    # ---- Umbral near-wall: N × resolución espacial del grid ----
-    # La resolución espacial Δ = mínimo valor no nulo del SDF normalizado,
-    # que corresponde a la distancia del centro de la primera celda a la pared.
-    nw_cells     = cfg.get("evaluation", {}).get("nearwall_cells", 2)
-    delta        = sdf_norm[sdf_norm > 1e-8].min()      # Δ: 1 celda adyacente a la pared
-    nw_threshold = nw_cells * delta
-    print(f"Resolución espacial Δ : {delta:.6f}  (SDF normalizado)")
-    print(f"Near-wall threshold   : SDF < {nw_threshold:.6f}  ({nw_cells} × Δ)\n")
+    # ---- Umbral near-wall ----
+    nw_cells = cfg.get("evaluation", {}).get("nearwall_cells", 2)
+    print(f"Near-wall: {nw_cells} × Δ por caso (Δ = mín. SDF no nulo de cada geometría)\n")
 
     # ---- Predicción y métricas ----
     mae_ux_list,    mae_uy_list,    mae_p_list    = [], [], []
@@ -95,7 +91,11 @@ def evaluate(config_path="configs/config.yaml"):
 
         # Máscaras: dominio fluido (excluye airfoil) y near-wall
         mask_flow = sdf_vis > 1e-6
-        mask_nw   = mask_flow & (sdf_vis < nw_threshold)
+        # Δ por caso: mínimo SDF fluido de esta geometría → umbral adaptado a su malla
+        sdf_flow_vals = sdf_vis[mask_flow]
+        delta_case    = sdf_flow_vals.min() if sdf_flow_vals.size > 0 else 1e-4
+        nw_threshold  = nw_cells * delta_case
+        mask_nw       = mask_flow & (sdf_vis < nw_threshold)
 
         # MAE global — solo sobre el dominio fluido (excluye interior airfoil)
         mae_ux_list.append(np.mean(np.abs((ux_true - fields["Ux"])[mask_flow])))
@@ -147,7 +147,7 @@ def evaluate(config_path="configs/config.yaml"):
     nw_p   = np.mean(nw_mae_p_list)  if nw_mae_p_list  else float("nan")
 
     print("=" * 57)
-    print(f"RESULTADOS  (near-wall: SDF < {nw_threshold:.6f} = {nw_cells}×Δ)")
+    print(f"RESULTADOS  (near-wall: {nw_cells}×Δ por caso)")
     print("=" * 57)
     print(f"{'Campo':<5}  {'MAE global':>18}  {'MAE near-wall':>18}")
     print(f"{'-'*5}  {'-'*18}  {'-'*18}")

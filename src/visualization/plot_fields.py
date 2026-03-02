@@ -52,9 +52,12 @@ def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None,
     flow_mask = ~mask if mask is not None else np.ones(error_pct.shape, dtype=bool)
     global_mae = error_pct[flow_mask].mean()
 
-    nw_str = f"  |  Near-wall MAE = {nearwall_mae:.2f}%" if nearwall_mae is not None else ""
+    nw_str = f"   |   Near-wall MAE = {nearwall_mae:.2f}%" if nearwall_mae is not None else ""
     im2 = axes[2].imshow(err_plot, cmap=cmap_err, origin='lower', vmin=0)
-    axes[2].set_title(f'Error(%) — {field_name}  (Global MAE = {global_mae:.2f}%{nw_str})')
+    axes[2].set_title(
+        f'Error(%) — {field_name}\nGlobal MAE = {global_mae:.2f}%{nw_str}',
+        fontsize=10
+    )
     plt.colorbar(im2, ax=axes[2], label='%')
 
     plt.tight_layout()

@@ -2,17 +2,17 @@ import tensorflow as tf
 from keras.models import Model
 from keras.layers import (
     Conv2D, Input, Conv2DTranspose, concatenate,
-    Flatten, Dense, Reshape
+    GlobalAveragePooling2D, Dense, Reshape
 )
 
 
-def unet_model_multi_output(input_shape=(512, 256, 1)):
+def unet_model_multi_output(input_shape=(256, 512, 1)):
     """
     Hybrid CNN + U-Net con tres salidas independientes.
 
     Entrada:
-        sdf: campo Signed Distance Function normalizado. El tamaño H×W debe
-             ser divisible por 8 (3 MaxPooling2D de stride 2).
+        sdf: campo Signed Distance Function normalizado. H=256, W=512.
+             H×W debe ser divisible por 8 (3 MaxPooling2D de stride 2).
 
     Salidas:
         output_1: campo de velocidad Ux
@@ -41,8 +41,10 @@ def unet_model_multi_output(input_shape=(512, 256, 1)):
     # ---- Bottleneck + transición CNN → U-Net ----
     b = Conv2D(128, (3, 3), activation='relu', padding='same')(p3)
     b = Conv2D(128, (3, 3), activation='relu', padding='same')(b)
-    flat = Flatten()(b)
-    dense = Dense(H_bn * W_bn * 32, activation='relu')(flat)
+    # GlobalAveragePooling comprime el mapa espacial a 128 valores (evita OOM
+    # que causaba Flatten en grids grandes como 256×512)
+    gap = GlobalAveragePooling2D()(b)
+    dense = Dense(H_bn * W_bn * 32, activation='relu')(gap)
     reshaped = Reshape((H_bn, W_bn, 32))(dense)
 
     # ---- Decoder Ux ----
