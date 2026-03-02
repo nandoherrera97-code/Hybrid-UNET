@@ -1,0 +1,18 @@
+model:
+  input_shape: [80, 200, 1]   # (H, W, canales)
+
+training:
+  epochs: 1000
+  test_size: 0.2
+  random_state: 42
+  patience: 10
+
+evaluation:
+  example_case: 15            # Índice del caso a visualizar individualmente (cell 9 del notebook)
+  t_openfoam: 2770.09         # Tiempo de referencia OpenFOAM en segundos (cell 14 del notebook)
+  nearwall_cells: 2           # Umbral near-wall = nearwall_cells × resolución espacial del grid
+
+paths:
+  dataset:     "data/processed/CNN_df.pkl"
+  saved_model: "saved_models/best_model.weights.h5"
+  results_dir: "data/results"
