@@ -2,11 +2,15 @@ import tensorflow as tf
 from keras.models import Model
 from keras.layers import (
     Conv2D, Input, Conv2DTranspose, concatenate,
-    Flatten, Dense, Reshape,
+    GlobalAveragePooling2D, Dense, Reshape,
 )
 
 
-def unet_model_multi_output(input_shape=(80, 200, 1)):
+def unet_model_multi_output(input_shape=(256, 512, 1)):
+    H, W = input_shape[0], input_shape[1]
+    # Tras 3 × MaxPool(2,2) el mapa de activaciones tiene tamaño H//8 × W//8
+    H_bn, W_bn = H // 8, W // 8
+
     inputs = Input(shape=input_shape)
 
     # Encoder
@@ -26,10 +30,11 @@ def unet_model_multi_output(input_shape=(80, 200, 1)):
     b = Conv2D(128, (3, 3), activation='relu', padding='same')(p3)
     b = Conv2D(128, (3, 3), activation='relu', padding='same')(b)
 
-    # Flatten
-    flat = Flatten()(b)
-    dense = Dense(10 * 25 * 32, activation='relu')(flat)
-    reshaped = Reshape((10, 25, 32))(dense)
+    # GlobalAveragePooling comprime el mapa espacial a 128 valores (evita OOM
+    # que causaba Flatten en grids grandes como 256×512)
+    gap = GlobalAveragePooling2D()(b)
+    dense = Dense(H_bn * W_bn * 32, activation='relu')(gap)
+    reshaped = Reshape((H_bn, W_bn, 32))(dense)
 
     # Decoder UX
     ux3 = Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same')(reshaped)  # 20,50

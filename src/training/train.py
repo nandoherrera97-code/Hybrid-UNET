@@ -9,6 +9,7 @@ Uso:
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+import time
 import numpy as np
 import pandas as pd
 import yaml
@@ -45,6 +46,7 @@ def train(config_path="configs/config.yaml"):
 
     # Convertir los datos de pandas Series a listas de NumPy arrays
     sdf_array = np.array(sdf_data.tolist())
+    sdf_array = np.maximum(sdf_array, 0)   # SDF < 0 (interior airfoil) → 0 exacto
     U_x_array = np.array(U_data_x.tolist())
     U_y_array = np.array(U_data_y.tolist())
     P_array   = np.array(P_data.tolist())
@@ -110,6 +112,7 @@ def train(config_path="configs/config.yaml"):
     # --------------------  ENTRENAR MODELO ------------------------------------
 
     # Entrenamiento del modelo con una entrada (SDF) y tres salidas (campos de velocidad y presión)
+    t_inicio = time.time()
     history = modelo_unet_multi.fit(
         X_train,
         [y_train_x, y_train_y, y_train_pressure],
@@ -117,6 +120,8 @@ def train(config_path="configs/config.yaml"):
         epochs=train_cfg["epochs"],
         callbacks=[early_stopping]
     )
+    t_total = time.time() - t_inicio
+    print(f"Tiempo total entrenamiento: {t_total:.1f} s  ({t_total/60:.1f} min)")
 
     # Guardar modelo
     saved_model_path = Path(paths_cfg["saved_model"])

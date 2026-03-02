@@ -42,6 +42,7 @@ def evaluate(config_path="configs/config.yaml"):
     # ---- Cargar y normalizar datos (igual que train.py) ----
     CNN_df    = pd.read_pickle(paths_cfg["dataset"])
     sdf_array = np.array(CNN_df["SDF"].tolist())
+    sdf_array = np.maximum(sdf_array, 0)   # SDF < 0 (interior airfoil) → 0 exacto
     U_x_array = np.array(CNN_df["Ux_discretized"].tolist())
     U_y_array = np.array(CNN_df["Uy_discretized"].tolist())
     P_array   = np.array(CNN_df["P_discretized"].tolist())
@@ -74,18 +75,16 @@ def evaluate(config_path="configs/config.yaml"):
     y_test_y         = np.expand_dims(y_test_y,         axis=-1)
     y_test_pressure  = np.expand_dims(y_test_pressure,  axis=-1)
 
-    # ---- Umbral near-wall: N × resolución espacial del grid ----
-    nw_cells     = eval_cfg.get("nearwall_cells", 2)
-    delta        = sdf_array[sdf_array > 1e-8].min()
-    nw_threshold = nw_cells * delta
+    # ---- Umbral near-wall ----
+    nw_cells = eval_cfg.get("nearwall_cells", 2)
 
     # ---- Cargar modelo ----
-    modelo_unet_multi = unet_model_multi_output(input_shape=tuple(cfg["model"]["input_shape"]))
+    input_shape = tuple(cfg["model"]["input_shape"])
+    modelo_unet_multi = unet_model_multi_output(input_shape=input_shape)
     modelo_unet_multi.load_weights(paths_cfg["saved_model"])
     print(f"Modelo cargado desde: {paths_cfg['saved_model']}")
     print(f"Casos de test: {len(X_test)}")
-    print(f"Resolución espacial Δ : {delta:.6f}  (SDF normalizado)")
-    print(f"Near-wall threshold   : SDF < {nw_threshold:.6f}  ({nw_cells} × Δ)\n")
+    print(f"Near-wall: {nw_cells} × Δ por caso (Δ = mín. SDF no nulo de cada geometría)\n")
 
     # ---- Bucle completo de inferencia con temporización y métricas ----
     mae_ux_list,    mae_uy_list,    mae_p_list    = [], [], []
@@ -101,7 +100,7 @@ def evaluate(config_path="configs/config.yaml"):
         p_test_i = np.flipud(y_test_pressure[i])
 
         predicted_velocity_x, predicted_velocity_y, predicted_pressure = modelo_unet_multi.predict(
-            sdf_test.reshape(1, 80, 200, 1), verbose=0
+            sdf_test.reshape(1, *input_shape), verbose=0
         )
 
         U_x_pred = np.flipud(predicted_velocity_x[0])
@@ -140,6 +139,10 @@ def evaluate(config_path="configs/config.yaml"):
         mabs_uy_list.append(np.mean(np.abs(u_y_test)))
         mabs_p_list.append( np.mean(np.abs(p_test_i)))
 
+        # Δ por caso: mínimo SDF fluido de esta geometría → umbral adaptado a su malla
+        sdf_flow_vals = sdf_vis[sdf_vis > 1e-6]
+        delta_case    = sdf_flow_vals.min() if sdf_flow_vals.size > 0 else 1e-4
+        nw_threshold  = nw_cells * delta_case
         mask_nw = (sdf_vis > 1e-6) & (sdf_vis < nw_threshold)
         if mask_nw.any():
             nw_mae_ux_list.append(np.mean(np.abs((u_x_test - U_x_pred)[mask_nw])))
@@ -171,7 +174,7 @@ def evaluate(config_path="configs/config.yaml"):
     nw_p   = np.mean(nw_mae_p_list)  if nw_mae_p_list  else float("nan")
 
     print("=" * 57)
-    print(f"RESULTADOS  (near-wall: SDF < {nw_threshold:.6f} = {nw_cells}×Δ)")
+    print(f"RESULTADOS  (near-wall: {nw_cells}×Δ por caso)")
     print("=" * 57)
     print(f"{'Campo':<5}  {'MAE global':>18}  {'MAE near-wall':>18}")
     print(f"{'-'*5}  {'-'*18}  {'-'*18}")
