@@ -11,7 +11,8 @@ training:
 evaluation:
   example_case: 15            # Índice del caso a visualizar individualmente (cell 9 del notebook)
   t_openfoam: 2770.09         # Tiempo de referencia OpenFOAM en segundos (cell 14 del notebook)
-  nearwall_cells: 2           # Umbral near-wall = nearwall_cells × resolución espacial del grid
+  nearwall_cells: 5           # Equivale al mismo grosor físico que nearwall_cells=2 en grid 80×200
+                              # (ratio de resolución: 0.01/0.00391 ≈ 2.56 → round(2×2.56) = 5)
 
 paths:
   dataset:     "data/processed/CNN_df.pkl"
