@@ -15,6 +15,6 @@ evaluation:
                               # (ratio de resolución: 0.01/0.00391 ≈ 2.56 → round(2×2.56) = 5)
 
 paths:
-  dataset:     "data/processed/CNN_df.pkl"
+  dataset:     "data/processed/CNN_df_512x256.pkl"
   saved_model: "saved_models/best_model_256x512.weights.h5"
   results_dir: "data/results"
