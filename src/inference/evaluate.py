@@ -17,7 +17,7 @@ from pathlib import Path
 
 from src.models.unet_hybrid import unet_model_multi_output
 from src.inference.predict import predict_fields
-from src.visualization.plot_fields import plot_comparison, plot_sdf, plot_training_history
+from src.visualization.plot_fields import plot_comparison, plot_sdf, plot_nearwall_distribution
 
 
 def load_config(config_path="configs/config.yaml"):
@@ -65,6 +65,10 @@ def evaluate(config_path="configs/config.yaml"):
     uy_test = uy_norm[idx_test]
     p_test  = p_norm[idx_test]
 
+    # ---- Listado de índices de test ----
+    print(f"Índices de test ({len(idx_test)}): {sorted(idx_test.tolist())}")
+    print()
+
     # ---- Cargar modelo ----
     model = unet_model_multi_output(input_shape=tuple(cfg["model"]["input_shape"]))
     model.load_weights(paths_cfg["saved_model"])
@@ -80,6 +84,8 @@ def evaluate(config_path="configs/config.yaml"):
     nw_mae_ux_list, nw_mae_uy_list, nw_mae_p_list = [], [], []
     # mean(|Y|) por caso — denominador de la fórmula MAE% del paper
     mabs_ux_list,   mabs_uy_list,   mabs_p_list   = [], [], []
+    # Errores near-wall celda a celda (para distribución)
+    nw_err_ux_all, nw_err_uy_all, nw_err_p_all = [], [], []
     t_inicio = time.time()
 
     for i in range(len(X_test)):
@@ -111,15 +117,33 @@ def evaluate(config_path="configs/config.yaml"):
             nw_mae_ux_list.append(np.mean(np.abs((ux_true - fields["Ux"])[mask_nw])))
             nw_mae_uy_list.append(np.mean(np.abs((uy_true - fields["Uy"])[mask_nw])))
             nw_mae_p_list.append( np.mean(np.abs((p_true  - fields["P"])[mask_nw])))
+            nw_err_ux_all.append(np.abs((ux_true - fields["Ux"])[mask_nw]))
+            nw_err_uy_all.append(np.abs((uy_true - fields["Uy"])[mask_nw]))
+            nw_err_p_all.append( np.abs((p_true  - fields["P"])[mask_nw]))
+
+        sim_name = f"sim_{idx_test[i]:03d}"
 
         # Guardar SDF del caso
-        fig_sdf = plot_sdf(sdf_vis, case_label=f"case {i:03d}")
-        fig_sdf.savefig(results_dir / f"case_{i:03d}_SDF.png", dpi=100)
+        fig_sdf = plot_sdf(sdf_vis, case_label=sim_name)
+        fig_sdf.savefig(results_dir / f"{sim_name}_SDF.png", dpi=100)
         plt.close(fig_sdf)
 
         # Guardar gráfica — denominador = mean(|Y|) del caso (consistente con paper)
         mabs_case = {"Ux": mabs_ux_list[-1], "Uy": mabs_uy_list[-1], "P": mabs_p_list[-1]}
         nw_maes   = {"Ux": nw_mae_ux_list,   "Uy": nw_mae_uy_list,   "P": nw_mae_p_list}
+
+        # Escala común de error% para los tres campos del caso (comparación visual)
+        airfoil_mask = sdf_vis == 0
+        def _err_pct(pred, true, denom):
+            d = denom if denom != 0 else 1.0
+            e = np.abs(true - pred) / d * 100
+            return e[~airfoil_mask].max() if (~airfoil_mask).any() else 0.0
+        err_vmax = max(
+            _err_pct(fields["Ux"], ux_true, mabs_case["Ux"]),
+            _err_pct(fields["Uy"], uy_true, mabs_case["Uy"]),
+            _err_pct(fields["P"],  p_true,  mabs_case["P"]),
+        )
+
         for field_key, true_arr, label, unit in [
             ("Ux", ux_true, "X-Velocity", "m/s"),
             ("Uy", uy_true, "Y-Velocity", "m/s"),
@@ -130,9 +154,9 @@ def evaluate(config_path="configs/config.yaml"):
             fig = plot_comparison(
                 fields[field_key], true_arr, label, unit,
                 denom=denom, nearwall_mae=nw_mae_pct,
-                mask=(sdf_vis == 0),
+                mask=airfoil_mask, err_vmax=err_vmax,
             )
-            fig.savefig(results_dir / f"case_{i:03d}_{field_key}.png", dpi=100)
+            fig.savefig(results_dir / f"{sim_name}_{field_key}.png", dpi=100)
             plt.close(fig)
 
     t_total = time.time() - t_inicio
@@ -156,6 +180,18 @@ def evaluate(config_path="configs/config.yaml"):
     print(f"{'P':<5}  {mae_p:.4f} Pa  ({mae_p/mabs_p*100:.2f}%)   {nw_p:.4f} Pa  ({nw_p/mabs_p*100:.2f}%)")
     print(f"\nTiempo total inferencia : {t_total:.2f} s  ({len(X_test)} casos)")
     print(f"Gráficas guardadas en   : {results_dir.resolve()}")
+
+    # ---- Distribución near-wall (un valor por caso = rendimiento por caso) ----
+    if nw_mae_ux_list:
+        fig_dist = plot_nearwall_distribution(
+            np.array(nw_mae_ux_list) / mabs_ux * 100,
+            np.array(nw_mae_uy_list) / mabs_uy * 100,
+            np.array(nw_mae_p_list)  / mabs_p  * 100,
+        )
+        fig_dist.savefig(results_dir / "nearwall_error_distribution.png", dpi=120)
+        fig_dist.savefig(results_dir / "nearwall_error_distribution.pdf")
+        plt.close(fig_dist)
+        print(f"Distribución near-wall  : {results_dir / 'nearwall_error_distribution.png/.pdf'}")
 
 
 if __name__ == "__main__":
