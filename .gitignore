@@ -8,9 +8,16 @@ __pycache__/
 
 # Datos y modelos (archivos grandes)
 data/processed/*.pkl
+data/raw/*.pkl
+data/raw/CFD_graphs/
+data/raw/results/
+data/raw/results_1/
+data/raw/sdf/
+data/raw/version anterior/
 data/results/
 saved_models/*.h5
 saved_models/*.weights.h5
+saved_models/*.npz
 
 # Jupyter (si se añaden notebooks en el futuro)
 .ipynb_checkpoints/
