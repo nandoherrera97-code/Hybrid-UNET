@@ -87,9 +87,12 @@ def evaluate(config_path="configs/config.yaml"):
     # Errores near-wall celda a celda (para distribución)
     nw_err_ux_all, nw_err_uy_all, nw_err_p_all = [], [], []
     t_inicio = time.time()
+    t_pred_list = []
 
     for i in range(len(X_test)):
+        t0 = time.time()
         fields, sdf_vis = predict_fields(model, X_test[i], norm_params)
+        t_pred_list.append(time.time() - t0)
 
         ux_true = np.flipud(np.squeeze(ux_test[i])) * (norm_params["Ux"][1] - norm_params["Ux"][0]) + norm_params["Ux"][0]
         uy_true = np.flipud(np.squeeze(uy_test[i])) * (norm_params["Uy"][1] - norm_params["Uy"][0]) + norm_params["Uy"][0]
@@ -178,7 +181,11 @@ def evaluate(config_path="configs/config.yaml"):
     print(f"{'Ux':<5}  {mae_ux:.4f} m/s ({mae_ux/mabs_ux*100:.2f}%)  {nw_ux:.4f} m/s ({nw_ux/mabs_ux*100:.2f}%)")
     print(f"{'Uy':<5}  {mae_uy:.4f} m/s ({mae_uy/mabs_uy*100:.2f}%)  {nw_uy:.4f} m/s ({nw_uy/mabs_uy*100:.2f}%)")
     print(f"{'P':<5}  {mae_p:.4f} Pa  ({mae_p/mabs_p*100:.2f}%)   {nw_p:.4f} Pa  ({nw_p/mabs_p*100:.2f}%)")
-    print(f"\nTiempo total inferencia : {t_total:.2f} s  ({len(X_test)} casos)")
+    t_pred_total = sum(t_pred_list)
+    t_pred_mean  = np.mean(t_pred_list)
+    print(f"\nTiempo predicción total : {t_pred_total:.3f} s  ({len(X_test)} casos)")
+    print(f"Tiempo predicción/caso  : {t_pred_mean*1000:.1f} ms")
+    print(f"Tiempo total inferencia : {t_total:.2f} s  (incl. métricas y gráficas)")
     print(f"Gráficas guardadas en   : {results_dir.resolve()}")
 
     # ---- Distribución near-wall (un valor por caso = rendimiento por caso) ----
