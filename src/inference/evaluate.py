@@ -79,13 +79,20 @@ def evaluate(config_path="configs/config.yaml"):
     nw_cells = cfg.get("evaluation", {}).get("nearwall_cells", 2)
     print(f"Near-wall: {nw_cells} × Δ por caso (Δ = mín. SDF no nulo de cada geometría)\n")
 
+    # ---- Rangos físicos para NMAE = MAE / (y_max - y_min) × 100 ----
+    field_ranges = {
+        "Ux": norm_params["Ux"][1] - norm_params["Ux"][0],
+        "Uy": norm_params["Uy"][1] - norm_params["Uy"][0],
+        "P":  norm_params["P"][1]  - norm_params["P"][0],
+    }
+
+    def safe_nmae(mae_value, value_range):
+        """NMAE (%) = MAE / (y_max - y_min) × 100. Devuelve nan si rango=0."""
+        return mae_value / value_range * 100 if value_range != 0 else float("nan")
+
     # ---- Predicción y métricas ----
     mae_ux_list,    mae_uy_list,    mae_p_list    = [], [], []
     nw_mae_ux_list, nw_mae_uy_list, nw_mae_p_list = [], [], []
-    # mean(|Y|) por caso — denominador de la fórmula MAE% del paper
-    mabs_ux_list,   mabs_uy_list,   mabs_p_list   = [], [], []
-    # Errores near-wall celda a celda (para distribución)
-    nw_err_ux_all, nw_err_uy_all, nw_err_p_all = [], [], []
     t_inicio = time.time()
     t_pred_list = []
 
@@ -106,23 +113,15 @@ def evaluate(config_path="configs/config.yaml"):
         nw_threshold  = nw_cells * delta_case
         mask_nw       = mask_flow & (sdf_vis < nw_threshold)
 
-        # MAE global — solo sobre el dominio fluido (excluye interior airfoil)
+        # MAE por caso — solo sobre el dominio fluido (excluye interior airfoil)
         mae_ux_list.append(np.mean(np.abs((ux_true - fields["Ux"])[mask_flow])))
         mae_uy_list.append(np.mean(np.abs((uy_true - fields["Uy"])[mask_flow])))
         mae_p_list.append( np.mean(np.abs((p_true  - fields["P"])[mask_flow])))
-
-        # mean(|Y|) sobre dominio fluido — denominador según fórmula del paper
-        mabs_ux_list.append(np.mean(np.abs(ux_true[mask_flow])))
-        mabs_uy_list.append(np.mean(np.abs(uy_true[mask_flow])))
-        mabs_p_list.append( np.mean(np.abs(p_true[mask_flow])))
 
         if mask_nw.any():
             nw_mae_ux_list.append(np.mean(np.abs((ux_true - fields["Ux"])[mask_nw])))
             nw_mae_uy_list.append(np.mean(np.abs((uy_true - fields["Uy"])[mask_nw])))
             nw_mae_p_list.append( np.mean(np.abs((p_true  - fields["P"])[mask_nw])))
-            nw_err_ux_all.append(np.abs((ux_true - fields["Ux"])[mask_nw]))
-            nw_err_uy_all.append(np.abs((uy_true - fields["Uy"])[mask_nw]))
-            nw_err_p_all.append( np.abs((p_true  - fields["P"])[mask_nw]))
 
         sim_name = f"sim_{idx_test[i]:03d}"
 
@@ -131,56 +130,56 @@ def evaluate(config_path="configs/config.yaml"):
         fig_sdf.savefig(results_dir / f"{sim_name}_SDF.png", dpi=100)
         plt.close(fig_sdf)
 
-        # Guardar gráfica — denominador = mean(|Y|) del caso (consistente con paper)
-        mabs_case = {"Ux": mabs_ux_list[-1], "Uy": mabs_uy_list[-1], "P": mabs_p_list[-1]}
-        nw_maes   = {"Ux": nw_mae_ux_list,   "Uy": nw_mae_uy_list,   "P": nw_mae_p_list}
-
-        # Escala común de error% para los tres campos del caso (comparación visual)
+        # Guardar gráficas con NMAE por caso como anotación
+        nw_maes      = {"Ux": nw_mae_ux_list, "Uy": nw_mae_uy_list, "P": nw_mae_p_list}
         airfoil_mask = sdf_vis == 0
-        def _err_pct(pred, true, denom):
-            d = denom if denom != 0 else 1.0
-            e = np.abs(true - pred) / d * 100
-            return e[~airfoil_mask].max() if (~airfoil_mask).any() else 0.0
+
+        # Rango de color compartido entre Ux, Uy, P (percentil 99 del mapa NMAE fluido)
+        def _nmae_p99(true_arr, pred_arr, fr):
+            vals = np.abs(true_arr - pred_arr)[mask_flow] / fr * 100 if fr != 0 else np.zeros(1)
+            return float(np.percentile(vals, 99)) if vals.size > 0 else 0.0
         err_vmax = max(
-            _err_pct(fields["Ux"], ux_true, mabs_case["Ux"]),
-            _err_pct(fields["Uy"], uy_true, mabs_case["Uy"]),
-            _err_pct(fields["P"],  p_true,  mabs_case["P"]),
-        )
+            _nmae_p99(ux_true, fields["Ux"], field_ranges["Ux"]),
+            _nmae_p99(uy_true, fields["Uy"], field_ranges["Uy"]),
+            _nmae_p99(p_true,  fields["P"],  field_ranges["P"]),
+        ) or None  # None → matplotlib autoscale si todos son 0
 
         for field_key, true_arr, label, unit in [
             ("Ux", ux_true, "X-Velocity", "m/s"),
             ("Uy", uy_true, "Y-Velocity", "m/s"),
             ("P",  p_true,  "Pressure",   "Pa"),
         ]:
-            denom      = mabs_case[field_key]
-            nw_mae_pct = nw_maes[field_key][-1] / denom * 100 if mask_nw.any() else None
+            field_range    = field_ranges[field_key]
+            mae_case_i     = {"Ux": mae_ux_list, "Uy": mae_uy_list, "P": mae_p_list}[field_key][-1]
+            nmae_case      = safe_nmae(mae_case_i, field_range)
+            nw_list        = nw_maes[field_key]
+            nearwall_nmae  = safe_nmae(nw_list[-1], field_range) if mask_nw.any() and nw_list else None
             fig = plot_comparison(
                 fields[field_key], true_arr, label, unit,
-                denom=denom, nearwall_mae=nw_mae_pct,
-                mask=airfoil_mask, err_vmax=err_vmax,
+                field_range=field_range, nmae_case=nmae_case,
+                nearwall_nmae=nearwall_nmae, mask=airfoil_mask, err_vmax=err_vmax,
             )
             fig.savefig(results_dir / f"{sim_name}_{field_key}.png", dpi=100)
             plt.close(fig)
 
     t_total = time.time() - t_inicio
 
-    # ---- Reporte de métricas (MAE% según fórmula del paper) ----
-    # MAE% = mean(|ŷ - y|) / mean(|y|) × 100
-    mae_ux = np.mean(mae_ux_list);  mabs_ux = np.mean(mabs_ux_list)
-    mae_uy = np.mean(mae_uy_list);  mabs_uy = np.mean(mabs_uy_list)
-    mae_p  = np.mean(mae_p_list);   mabs_p  = np.mean(mabs_p_list)
+    # ---- Reporte de métricas  NMAE = MAE / (y_max - y_min) × 100 ----
+    mae_ux = np.mean(mae_ux_list)
+    mae_uy = np.mean(mae_uy_list)
+    mae_p  = np.mean(mae_p_list)
     nw_ux  = np.mean(nw_mae_ux_list) if nw_mae_ux_list else float("nan")
     nw_uy  = np.mean(nw_mae_uy_list) if nw_mae_uy_list else float("nan")
     nw_p   = np.mean(nw_mae_p_list)  if nw_mae_p_list  else float("nan")
 
-    print("=" * 57)
+    print("=" * 63)
     print(f"RESULTADOS  (near-wall: {nw_cells}×Δ por caso)")
-    print("=" * 57)
-    print(f"{'Campo':<5}  {'MAE global':>18}  {'MAE near-wall':>18}")
-    print(f"{'-'*5}  {'-'*18}  {'-'*18}")
-    print(f"{'Ux':<5}  {mae_ux:.4f} m/s ({mae_ux/mabs_ux*100:.2f}%)  {nw_ux:.4f} m/s ({nw_ux/mabs_ux*100:.2f}%)")
-    print(f"{'Uy':<5}  {mae_uy:.4f} m/s ({mae_uy/mabs_uy*100:.2f}%)  {nw_uy:.4f} m/s ({nw_uy/mabs_uy*100:.2f}%)")
-    print(f"{'P':<5}  {mae_p:.4f} Pa  ({mae_p/mabs_p*100:.2f}%)   {nw_p:.4f} Pa  ({nw_p/mabs_p*100:.2f}%)")
+    print("=" * 63)
+    print(f"{'Campo':<5}  {'MAE global':>22}  {'MAE near-wall':>22}")
+    print(f"{'-'*5}  {'-'*22}  {'-'*22}")
+    print(f"{'Ux':<5}  {mae_ux:.4f} m/s ({safe_nmae(mae_ux, field_ranges['Ux']):.2f}% NMAE)  {nw_ux:.4f} m/s ({safe_nmae(nw_ux, field_ranges['Ux']):.2f}% NMAE)")
+    print(f"{'Uy':<5}  {mae_uy:.4f} m/s ({safe_nmae(mae_uy, field_ranges['Uy']):.2f}% NMAE)  {nw_uy:.4f} m/s ({safe_nmae(nw_uy, field_ranges['Uy']):.2f}% NMAE)")
+    print(f"{'P':<5}  {mae_p:.4f} Pa  ({safe_nmae(mae_p,  field_ranges['P']):.2f}% NMAE)   {nw_p:.4f} Pa  ({safe_nmae(nw_p,  field_ranges['P']):.2f}% NMAE)")
     t_pred_total = sum(t_pred_list)
     t_pred_mean  = np.mean(t_pred_list)
     print(f"\nTiempo predicción total : {t_pred_total:.3f} s  ({len(X_test)} casos)")
@@ -188,12 +187,12 @@ def evaluate(config_path="configs/config.yaml"):
     print(f"Tiempo total inferencia : {t_total:.2f} s  (incl. métricas y gráficas)")
     print(f"Gráficas guardadas en   : {results_dir.resolve()}")
 
-    # ---- Distribución near-wall (un valor por caso = rendimiento por caso) ----
+    # ---- Distribución near-wall NMAE (un valor por caso) ----
     if nw_mae_ux_list:
         fig_dist = plot_nearwall_distribution(
-            np.array(nw_mae_ux_list) / mabs_ux * 100,
-            np.array(nw_mae_uy_list) / mabs_uy * 100,
-            np.array(nw_mae_p_list)  / mabs_p  * 100,
+            np.array([safe_nmae(v, field_ranges["Ux"]) for v in nw_mae_ux_list]),
+            np.array([safe_nmae(v, field_ranges["Uy"]) for v in nw_mae_uy_list]),
+            np.array([safe_nmae(v, field_ranges["P"])  for v in nw_mae_p_list]),
         )
         fig_dist.savefig(results_dir / "nearwall_error_distribution.png", dpi=120)
         fig_dist.savefig(results_dir / "nearwall_error_distribution.pdf")

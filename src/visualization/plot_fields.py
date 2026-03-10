@@ -4,30 +4,31 @@ from scipy.ndimage import gaussian_filter
 from scipy.stats import gaussian_kde
 
 
-def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None, mask=None, err_vmax=None):
+def plot_comparison(pred, true, field_name, unit, mask=None,
+                    field_range=None, nmae_case=None, nearwall_nmae=None, err_vmax=None):
     """
-    Muestra en tres subplots: predicción, referencia y error porcentual.
+    Three-panel figure: prediction | reference | NMAE error map (%).
 
-    El error % se calcula según la fórmula del paper:
-        error%[i,j] = |true[i,j] - pred[i,j]| / mean(|true|) × 100
+    Error map = |pred - true| / (y_max - y_min) × 100  (NMAE per cell).
+    Per-case NMAE metrics are shown as a text annotation on the error panel.
 
     Args:
-        pred         : array 2D predicho
-        true         : array 2D de referencia (OpenFOAM)
-        field_name   : nombre del campo (e.g. 'X-Velocity')
-        unit         : unidad (e.g. 'm/s', 'Pa')
-        denom        : denominador = mean(|true|). Si es None se calcula del propio caso.
-        nearwall_mae : MAE% en la zona near-wall (float). Si se pasa, se muestra en el título.
-        mask         : array 2D booleano (True = airfoil). Se muestra en blanco.
+        pred          : 2D predicted array
+        true          : 2D reference array (OpenFOAM)
+        field_name    : field label (e.g. 'X-Velocity')
+        unit          : physical unit (e.g. 'm/s', 'Pa')
+        mask          : 2D bool array (True = airfoil interior, shown white)
+        field_range   : y_max - y_min [physical unit]. If None, uses max(|true|).
+        nmae_case     : per-case global NMAE (%) — shown as annotation
+        nearwall_nmae : per-case near-wall NMAE (%) — shown as annotation
     """
-    d = denom if denom is not None else np.mean(np.abs(true))
-    d = d if d != 0 else 1.0
-    error_pct = np.abs(true - pred) / d * 100
+    d = field_range if (field_range is not None and field_range != 0) else (np.max(np.abs(true)) or 1.0)
+    error_nmae_map = np.abs(true - pred) / d * 100  # NMAE per cell (%)
 
     vmin = min(pred.min(), true.min())
     vmax = max(pred.max(), true.max())
 
-    # Colormaps con color blanco para la zona enmascarada (airfoil)
+    # Colormaps — airfoil interior shown in white
     cmap_field = plt.cm.viridis.copy()
     cmap_field.set_bad('white')
     cmap_err = plt.cm.Reds.copy()
@@ -36,9 +37,9 @@ def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None,
     if mask is not None:
         pred_plot = np.ma.masked_where(mask, pred)
         true_plot = np.ma.masked_where(mask, true)
-        err_plot  = np.ma.masked_where(mask, error_pct)
+        err_plot  = np.ma.masked_where(mask, error_nmae_map)
     else:
-        pred_plot, true_plot, err_plot = pred, true, error_pct
+        pred_plot, true_plot, err_plot = pred, true, error_nmae_map
 
     fig, axes = plt.subplots(3, 1, figsize=(8, 10))
 
@@ -50,17 +51,23 @@ def plot_comparison(pred, true, field_name, unit, denom=None, nearwall_mae=None,
     axes[1].set_title(f'OpenFOAM — {field_name}')
     plt.colorbar(im1, ax=axes[1], label=unit)
 
-    # MAE global calculado solo sobre el dominio fluido (excluye airfoil)
-    flow_mask = ~mask if mask is not None else np.ones(error_pct.shape, dtype=bool)
-    global_mae = error_pct[flow_mask].mean()
-
-    nw_str = f"   |   Near-wall MAE = {nearwall_mae:.2f}%" if nearwall_mae is not None else ""
     im2 = axes[2].imshow(err_plot, cmap=cmap_err, origin='lower', vmin=0, vmax=err_vmax)
-    axes[2].set_title(
-        f'Error(%) — {field_name}\nGlobal MAE = {global_mae:.2f}%{nw_str}',
-        fontsize=10
-    )
-    plt.colorbar(im2, ax=axes[2], label='%')
+    axes[2].set_title(f'NMAE map (%) — {field_name}', fontsize=10)
+    plt.colorbar(im2, ax=axes[2], label='NMAE (%)')
+
+    # Per-case NMAE annotations (bottom-left of error panel)
+    lines = []
+    if nmae_case is not None:
+        lines.append(f"NMAE: {nmae_case:.2f}%")
+    if nearwall_nmae is not None:
+        lines.append(f"NW NMAE: {nearwall_nmae:.2f}%")
+    if lines:
+        axes[2].text(
+            0.02, 0.03, "\n".join(lines),
+            transform=axes[2].transAxes,
+            fontsize=9, verticalalignment='bottom',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7),
+        )
 
     plt.tight_layout()
     return fig
@@ -127,22 +134,22 @@ def plot_training_history(history):
     return fig
 
 
-def plot_nearwall_distribution(err_ux_pct, err_uy_pct, err_p_pct):
+def plot_nearwall_distribution(nmae_ux, nmae_uy, nmae_p):
     """
-    Near-wall MAE% distribution across the test set (one value per case).
+    Near-wall NMAE distribution across the test set (one value per case).
 
-    Shows normalized histogram + KDE curve for Ux, Uy and P.
-    The Mean line matches the value reported in evaluate.py.
+    NMAE = MAE / (y_max - y_min) × 100. Shows normalized histogram + KDE
+    for Ux, Uy and P. The Mean line matches the value reported in evaluate.py.
 
     Args:
-        err_ux_pct : 1D array — near-wall MAE% per test case for Ux
-        err_uy_pct : 1D array — near-wall MAE% per test case for Uy
-        err_p_pct  : 1D array — near-wall MAE% per test case for P
+        nmae_ux : 1D array — near-wall NMAE (%) per test case for Ux
+        nmae_uy : 1D array — near-wall NMAE (%) per test case for Uy
+        nmae_p  : 1D array — near-wall NMAE (%) per test case for P
     """
     fields_data = [
-        (err_ux_pct, "Ux",       "steelblue"),
-        (err_uy_pct, "Uy",       "darkorange"),
-        (err_p_pct,  "Pressure", "seagreen"),
+        (nmae_ux, "Ux",       "steelblue"),
+        (nmae_uy, "Uy",       "darkorange"),
+        (nmae_p,  "Pressure", "seagreen"),
     ]
 
     fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=False)
@@ -153,24 +160,22 @@ def plot_nearwall_distribution(err_ux_pct, err_uy_pct, err_p_pct):
             ax.set_title(f"{name} — no data")
             continue
 
-        # Normalized histogram (density)
         ax.hist(errors, bins=50, density=True, color=color, alpha=0.4, label="Histogram")
 
-        # Curva KDE
-        kde = gaussian_kde(errors)
-        x = np.linspace(0, np.percentile(errors, 99), 300)
-        ax.plot(x, kde(x), color=color, linewidth=2, label="KDE")
+        if errors.size > 1:
+            kde = gaussian_kde(errors)
+            x = np.linspace(0, np.percentile(errors, 99), 300)
+            ax.plot(x, kde(x), color=color, linewidth=2, label="KDE")
 
-        # Mean line
         mean_val = errors.mean()
         ax.axvline(mean_val, color='black', linestyle='--', linewidth=1.2,
                    label=f"Mean = {mean_val:.2f}%")
 
-        ax.set_xlabel("Near-wall error (%)")
+        ax.set_xlabel("Near-wall NMAE (%)")
         ax.set_ylabel("Density")
-        ax.set_title(f"Near-wall distribution — {name}")
+        ax.set_title(f"Near-wall NMAE — {name}")
         ax.legend(fontsize=8)
 
-    plt.suptitle("Near-wall error distribution (test set)", fontsize=12)
+    plt.suptitle("Near-wall NMAE distribution (test set)", fontsize=12)
     plt.tight_layout()
     return fig
