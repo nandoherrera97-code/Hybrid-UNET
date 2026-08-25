@@ -138,44 +138,71 @@ def plot_nearwall_distribution(nmae_ux, nmae_uy, nmae_p):
     """
     Near-wall NMAE distribution across the test set (one value per case).
 
-    NMAE = MAE / (y_max - y_min) × 100. Shows normalized histogram + KDE
-    for Ux, Uy and P. The Mean line matches the value reported in evaluate.py.
+    NMAE = MAE / (y_max - y_min) × 100.
+    Shows histogram of errors for Ux, Uy and P.
+    Includes mean and P95 indicators.
 
     Args:
         nmae_ux : 1D array — near-wall NMAE (%) per test case for Ux
         nmae_uy : 1D array — near-wall NMAE (%) per test case for Uy
         nmae_p  : 1D array — near-wall NMAE (%) per test case for P
     """
+
     fields_data = [
-        (nmae_ux, "Ux",       "steelblue"),
-        (nmae_uy, "Uy",       "darkorange"),
+        (nmae_ux, "Ux", "steelblue"),
+        (nmae_uy, "Uy", "darkorange"),
         (nmae_p,  "Pressure", "seagreen"),
     ]
 
     fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=False)
 
     for ax, (errors, name, color) in zip(axes, fields_data):
+
         errors = errors[np.isfinite(errors)]
         if errors.size == 0:
             ax.set_title(f"{name} — no data")
             continue
 
-        ax.hist(errors, bins=50, density=True, color=color, alpha=0.4, label="Histogram")
+        N = errors.size
 
-        if errors.size > 1:
-            kde = gaussian_kde(errors)
-            x = np.linspace(0, np.percentile(errors, 99), 300)
-            ax.plot(x, kde(x), color=color, linewidth=2, label="KDE")
+        # Histogram
+        ax.hist(
+            errors,
+            bins=12,
+            density=False,
+            color=color,
+            alpha=0.5,
+            edgecolor="black",
+            label="Histogram"
+        )
 
-        mean_val = errors.mean()
-        ax.axvline(mean_val, color='black', linestyle='--', linewidth=1.2,
-                   label=f"Mean = {mean_val:.2f}%")
+        # Statistics
+        mean_val = np.mean(errors)
+        p95 = np.percentile(errors, 95)
+
+        ax.axvline(
+            mean_val,
+            color='black',
+            linestyle='--',
+            linewidth=1.2,
+            label=f"Mean = {mean_val:.2f}%"
+        )
+
+        ax.axvline(
+            p95,
+            color='black',
+            linestyle='-.',
+            linewidth=1.2,
+            label=f"P95 = {p95:.2f}%"
+        )
 
         ax.set_xlabel("Near-wall NMAE (%)")
-        ax.set_ylabel("Density")
-        ax.set_title(f"Near-wall NMAE — {name}")
+        ax.set_ylabel("Number of cases")
+        ax.set_title(f"{name} (N = {N})")
+
         ax.legend(fontsize=8)
 
     plt.suptitle("Near-wall NMAE distribution (test set)", fontsize=12)
     plt.tight_layout()
+
     return fig
